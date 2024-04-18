@@ -28,6 +28,10 @@ To use without Cuda, you will want to load the Cuda-less Kokkos packages
 Run these inside the desired example or problem
 `KOKKOS_DEVICES=OpenMP    make`
 `./program_name.host`
+### Running MPI and Kokkos
+Do the above steps for, but also load OpenMPI with,
+`spack load openmpi@4.1.5%gcc@=8.5.0 arch=linux-rocky8-x86_64_v3`
+Make as normal
 To run MPI+Kokkos
 `mpirun -n 2 ./prog.host`
 You may also have to add `--oversubscribe` flag
