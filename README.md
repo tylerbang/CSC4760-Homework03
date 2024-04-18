@@ -1,4 +1,4 @@
-# CSC5760 and CSC4760 Parallel Programming Homework 02
+# CSC5760 and CSC4760 Parallel Programming Homework 03
 
 ## Notes on running files on TN Tech Cluster
 Sign in to login shell with your user account. 

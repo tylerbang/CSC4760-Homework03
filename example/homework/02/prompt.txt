@@ -8,4 +8,6 @@ receives of halos will be into the domain to be updated. This will mean you have
 one in each of the even and odd copies of your domain.
 Note: Please look at this problem soon, so that you can ask questions on 4/18/24 and 4/23/24 in class
 to be sure you get any needed questions answered. Class mentor Evan Suggs will be available to advise on
-Kokkos issues too
+Kokkos issues to
+
+To run: make as normal, run with mpirun --oversubscribe -n 2 ./prog.host;
