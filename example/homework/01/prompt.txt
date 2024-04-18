@@ -1,5 +1,11 @@
-Problem 1(10pts/8pts):
-Write an MPI program that passes a message of one integer around in a logical ring of processes with
-MPI_COMM_WORLD. The integer should start at 0 in process 0 and be incremented each time it passes around
-the ring, and you should be able to have the message go around the ring N times, where N is specified at
-compile time.
+Problem 1 (30pts/24pts):
+Write an MPI program that builds a 2D process topology of shape P ×Q. On each column of processes, store a
+vector x of length M , distributed in a linear load-balanced fashion “vertically” (it will be replicated Q times).
+Start with data only in process (0,0), and scatter it down the first column. Once it is scattered on column 0,
+broadcast it horizontally in each process row. Allocate a vector y of length M that is replicated “horizontally”
+in each process row and stored also in linear load-balanced distribution; there will be P replicas, one in each
+process row. Using MPI Allreduce or MPI Allgather with the appropriate communicators, do the parallel
+copy y := x. There should be P replicas of the answer in y when you’re done.
+Notes:
+• CSC4760: Leverage your work on Problem #0 above to help do this problem.
+• CSC5760: Leverage your work on HW#2, Problem #5 to help do this problem

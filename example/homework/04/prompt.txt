@@ -1,5 +1,14 @@
-Problem 4 (15pts/12pts):
-1. Demonstrate the use of MPI Bcast and MPI Reduce to achieve the same result as MPI Allreduce.
-2. Demonstrate the use of MPI Gather and MPI Bcast to achieve the same result as MPI Allgather.
-3. Demonstrate the use of MPI Alltoall to send a personalized communication between each process in
-MPI COMM WORLD.
+Problem 4 (28pts):
+1. (8pts) Using the results of Problem #1 and #3 to compute the dot product of two distinct vectors of
+length M , one stored initially horizontally in linear load-balanced distribution, and one stored initially
+vertically in linear load-balanced distribution. The scalar result should be in all processes at the end
+of the computation.
+Hint: You can do the copy operation shown in Problems #1 and #3 to make this much easier.
+2. (8pts) Modify the exercise with one stored in linear load-balanced distribution, and the other in the
+scatter distribution.
+3. (12pts) Compute the Matrix-vector product of an M × N matrix A stored on the P × Q grid with
+linear load-balanced rows and columns with a vector of length N stored horizontally over the same
+process topology. Explain the distribution of your output vector y := Ax; is it in a horizontal or
+vertical distribution?
+(5pts–Extra credit for CSC5760) Show how to compute z := Ay (where z is stored like x), and A, y
+are stored as above.
