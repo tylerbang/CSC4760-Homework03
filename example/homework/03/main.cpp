@@ -57,12 +57,22 @@ int main(int argc, char* argv[]){
     vector<int> x_row(M / P);
     MPI_Bcast(&x_local[0], M / P, MPI_INT, 0, mod_comm);
 
-    // allocate a vector y of length M that is replicated "horizontally" in each process row
-    // there will be P replicas, one in each process row
+    // so now, instead we want to store y in a scatter distribution
+    // modify the code below to do this
+
     vector<int> y(M / P);
 
-    // using MPI Allreduce or MPI Allgather with the appropriate communicators, do the parallel copy y := x
-    MPI_Allreduce(&x_local[0], &y[0], M / P, MPI_INT, MPI_SUM, mod_comm);
+    // do a scatter operation to distribute x_local to y
+    // for this case, from global coeffient J on Q processes, then local index is j = J/Q, q = J mod Q, and the number of
+    // elements per process is the same as in the linear load-balanced distribution would produce with N elements
+    // over Q partitions.
+    MPI_Scatter(&x[0], M / P, MPI_INT, &y[0], M / P, MPI_INT, 0, color_comm);
+
+    // broadcast it horizontally in each process row
+    vector<int> y_row(M / P);
+    MPI_Bcast(&y[0], M / P, MPI_INT, 0, mod_comm);
+
+    // now, we should have P replicas of the answer in y
 
     // there should be P replicas of the answer in y when you're done
     cout << "Rank " << rank << " y: ";
