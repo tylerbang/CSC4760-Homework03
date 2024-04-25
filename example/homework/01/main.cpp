@@ -6,8 +6,6 @@ broadcast it horizontally in each process row. Allocate a vector y of length M t
 in each process row and stored also in linear load-balanced distribution; there will be P replicas, one in each
 process row. Using MPI Allreduce or MPI Allgather with the appropriate communicators, do the parallel
 copy y := x. There should be P replicas of the answer in y when you’re done.
-
-Note utilize the code below.
 */
 
 #include <mpi.h>
@@ -46,39 +44,48 @@ int main(int argc, char* argv[]){
 
     // we need to store a vector x of length M, distributed in a linear load-balanced fashion "vertically"
     // it will be replicated Q times
-    int M = 10;
+    int M = 25;
     vector<int> x(M);
     if (rank == 0){
         for (int i = 0; i < M; i++){
-            x[i] = i;
+            x[i] = i + 1;
         }
     }
-    
-    // scatter it down the first column
+
+    int* sendcounts = new int[P];
+    int* displs = new int[P];
+
+    for (int i = 0; i < P; i++){
+        sendcounts[i] = M / P;
+        displs[i] = i * M / P;
+    }
+
+    // now, scatter it down the first column (make sure to use Scatterv, not Scatter)
     vector<int> x_local(M / P);
-    MPI_Scatter(&x[0], M / P, MPI_INT, &x_local[0], M / P, MPI_INT, 0, color_comm);
-    
-    // broadcast it horizontally in each process row
-    vector<int> x_row(M / P);
-    MPI_Bcast(&x_local[0], M / P, MPI_INT, 0, mod_comm);
+    MPI_Scatterv(x.data(), sendcounts, displs, MPI_INT, x_local.data(), M / P, MPI_INT, 0, color_comm);
+
+    delete[] sendcounts;
+    delete[] displs;
+
+    // once it is scattered on column 0, broadcast it horizontally in each process row
+    MPI_Bcast(x_local.data(), M / P, MPI_INT, 0, mod_comm);
 
     // allocate a vector y of length M that is replicated "horizontally" in each process row
     // there will be P replicas, one in each process row
     vector<int> y(M / P);
 
     // using MPI Allreduce or MPI Allgather with the appropriate communicators, do the parallel copy y := x
-    MPI_Allreduce(&x_local[0], &y[0], M / P, MPI_INT, MPI_SUM, mod_comm);
+    MPI_Allreduce(x_local.data(), y.data(), M / P, MPI_INT, MPI_SUM, mod_comm);
 
     // there should be P replicas of the answer in y when you're done
-    cout << "Rank " << rank << " y: ";
+
+    // print for debugging
+    cout << "Rank " << rank << " has y = ";
     for (int i = 0; i < M / P; i++){
         cout << y[i] << " ";
     }
     cout << endl;
-
-    MPI_Comm_free(&color_comm);
-    MPI_Comm_free(&mod_comm);
-
+    
     MPI_Finalize();
     return 0;
 }
