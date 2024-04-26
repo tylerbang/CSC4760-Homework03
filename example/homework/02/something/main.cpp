@@ -143,14 +143,14 @@ int main(int argc, char* argv[]) {
             currDomain[iRow][nCols + 1] = currDomain[iRow][1];
         }
 
-        // if not the first process, receive token from previous process
+        // if not the first process, send token to first process
         if (rank != 0){
             for (int iRow = 1; iRow <= nRowsLocal; iRow++){
                 MPI_Send(&currDomain[iRow][1], nCols, MPI_INT, 0, 0, comm);
             }
         }
 
-        // if the first process, receive token from last process
+        
         if (rank == 0){
             cout << "iTime: " << iTime << endl;
 

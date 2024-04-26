@@ -21,13 +21,12 @@ int main(int argc, char* argv[]) {
 	MPI_Init(&argc, &argv);
 	Kokkos::initialize(argc, argv);
   	{
-		// Get rank and size
 		MPI_Comm comm = MPI_COMM_WORLD;
 		int rank, size;
 		MPI_Comm_rank(comm, &rank);
 		MPI_Comm_size(comm, &size);
 
-		// Get number of rows, columns, and time steps
+		// variables for the number of rows, columns, and time steps
 		int nRows;
 		int nCols;
 		int nTime;
@@ -52,7 +51,7 @@ int main(int argc, char* argv[]) {
 		MPI_Bcast(&nCols, 1, MPI_INT, 0, comm);
 		MPI_Bcast(&nTime, 1, MPI_INT, 0, comm);
 
-		// check if the number of rows is divisible by the number of processes
+		// Check if the number of rows is divisible by the number of processes
 		int nRowsLocal = nRows / size;
 		if (rank == (size-1)){
 			nRowsLocal += nRows % size;
@@ -60,14 +59,14 @@ int main(int argc, char* argv[]) {
 
 		// the ghost cells are the cells that are on the edge of the domain
 		int nRowsLocalWithGhost = nRowsLocal + 2;
-		int nColsLocalWithGhost = nCols + 2;
+		int nColsWithGhost = nCols + 2;
 
-		// initialize the domain
-		Kokkos::View<int**> domain("domain", nRowsLocalWithGhost, nColsLocalWithGhost);
-		Kokkos::View<int**> nextDomain("nextDomain", nRowsLocalWithGhost, nColsLocalWithGhost);
+		// Initialize the domain (remember, we are using Kokkos views)
+		Kokkos::View<int**> currDomain("currDomain", nRowsLocalWithGhost, nColsWithGhost);
+		Kokkos::View<int**> nextDomain("nextDomain", nRowsLocalWithGhost, nColsWithGhost);
 
 		int dims[2] = {0, 0};
-		int sqrtSize = static_cast<int>(sqrt(size));
+		int sqrtSize = static_cast<int>(std::sqrt(size));
 		if (sqrtSize * sqrtSize != size) {
 			std::cout << "Number of processes must be a perfect square" << std::endl;
 			MPI_Abort(comm, 1);
@@ -78,44 +77,51 @@ int main(int argc, char* argv[]) {
 		MPI_Comm comm2D;
 		MPI_Cart_create(comm, 2, dims, periods, 0, &comm2D);
 
+		// get the rank in the new communicator
 		int rank2D;
 		MPI_Comm_rank(comm2D, &rank2D);
 
+		// calculate the von Neumann neighbors
 		int north, south, east, west;
 		MPI_Cart_shift(comm2D, 0, 1, &north, &south);
 		MPI_Cart_shift(comm2D, 1, 1, &west, &east);
 
+		// calculate the Moore neighbors
 		int northwest, northeast, southwest, southeast;
 		MPI_Cart_shift(comm2D, 0, 1, &northwest, &southeast);
 		MPI_Cart_shift(comm2D, 1, 1, &southwest, &northeast);
 
-		// fill the domain with random values
-		Kokkos::View<int**> domainCopy("domainCopy", nRowsLocalWithGhost, nColsLocalWithGhost);
+		// fill in the domain with random values, using Kokkos parallel_for
 		srand(time(0));
-		for (int i = 0; i < nRowsLocalWithGhost; i++) {
-			for (int j = 0; j < nColsLocalWithGhost; j++) {
-				domain(i, j) = rand() % 2;
-			}
-		}
-
+		Kokkos::parallel_for("initializeDomain", nRowsLocal * nColsWithGhost, KOKKOS_LAMBDA(const int idx) {
+    		int iRow = idx / nColsWithGhost;
+    		int iCol = idx % nColsWithGhost;
+    		currDomain(iRow, iCol) = rand() % 2;
+		});
+		Kokkos::fence();
 		
+		const int ALIVE = 1;
+		const int DEAD = 0;
 
-		Kokkos::parallel_for(nRowsLocalWithGhost * nColsLocalWithGhost, KOKKOS_LAMBDA(const int i) {
-			domain(i) = 0;
-			domainCopy(i) = 0;
-		});
-
-		Kokkos::fence();
-
-		srand(time(NULL));
-		Kokkos::parallel_for(nRowsLocalWithGhost * nColsLocalWithGhost, KOKKOS_LAMBDA(const int i) {
-			domain(i) = rand() % 2;
-		});
-
-		Kokkos::fence();
-
-
+		MPI_Sendrecv(&currDomain(1, 1), nCols, MPI_INT, north, 0, &currDomain(nRowsLocal + 1, 1), nCols, MPI_INT, south, 0, comm, MPI_STATUS_IGNORE);
+		MPI_Sendrecv(&currDomain(nRowsLocal, 1), nCols, MPI_INT, south, 0, &currDomain(0, 1), nCols, MPI_INT, north, 0, comm, MPI_STATUS_IGNORE);
+		MPI_Sendrecv(&currDomain(1, 1), 1, MPI_INT, west, 0, &currDomain(1, nCols + 1), 1, MPI_INT, east, 0, comm, MPI_STATUS_IGNORE);
+		MPI_Sendrecv(&currDomain(1, nCols), 1, MPI_INT, east, 0, &currDomain(1, 0), 1, MPI_INT, west, 0, comm, MPI_STATUS_IGNORE);
+		MPI_Sendrecv(&currDomain(1, 1), 1, MPI_INT, northwest, 0, &currDomain(nRowsLocal + 1, nCols + 1), 1, MPI_INT, southeast, 0, comm, MPI_STATUS_IGNORE);
+		MPI_Sendrecv(&currDomain(1, nCols), 1, MPI_INT, northeast, 0, &currDomain(nRowsLocal + 1, 0), 1, MPI_INT, southwest, 0, comm, MPI_STATUS_IGNORE);
+		MPI_Sendrecv(&currDomain(nRowsLocal, 1), 1, MPI_INT, southwest, 0, &currDomain(0, nCols + 1), 1, MPI_INT, northeast, 0, comm, MPI_STATUS_IGNORE);
+		MPI_Sendrecv(&currDomain(nRowsLocal, nCols), 1, MPI_INT, southeast, 0, &currDomain(0, 0), 1, MPI_INT, northwest, 0, comm, MPI_STATUS_IGNORE);
+		
+		// print what each process has
+		for (int iRow = 0; iRow < nRowsLocalWithGhost; iRow++) {
+			for (int iCol = 0; iCol < nColsWithGhost; iCol++) {
+				std::cout << currDomain(iRow, iCol) << " ";
+			}
+			std::cout << std::endl;
+		}
   	}
+
+	// screw it, I'm coming back to this later
   	Kokkos::finalize();
 	MPI_Finalize();
 }
