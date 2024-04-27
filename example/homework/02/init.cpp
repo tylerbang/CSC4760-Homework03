@@ -120,12 +120,6 @@ int main(int argc, char* argv[]) {
 		const int ALIVE = 1;
 		const int DEAD = 0;
 
-		// vscode is a slow piece of garbage
-		// I want to use emacs
-		// but sadly I cannot because there
-		// is no copilot for emacs
-		// sadge
-
 		// Brock Purdy is the greatest Mr. Irrelevant of all time
 
 		// now we can start the simulation
