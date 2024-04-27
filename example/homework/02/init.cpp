@@ -44,6 +44,11 @@ int main(int argc, char* argv[]) {
 				std::cout << "nRows, nCols, nTime must be greater than 0" << std::endl;
 				MPI_Abort(comm, 1);
 			}
+			int sqrtSize = static_cast<int>(std::sqrt(size));
+			if (sqrtSize * sqrtSize != size) {
+				std::cout << "Number of processes must be a perfect square" << std::endl;
+				MPI_Abort(comm, 1);
+			}	
 		}
 
 		// Broadcast the number of rows, columns, and time steps
@@ -57,6 +62,9 @@ int main(int argc, char* argv[]) {
 			nRowsLocal += nRows % size;
 		}
 
+		// print the number of rows local
+		std::cout << "Number of rows local: " << nRowsLocal << std::endl;
+
 		// the ghost cells are the cells that are on the edge of the domain
 		int nRowsLocalWithGhost = nRowsLocal + 2;
 		int nColsWithGhost = nCols + 2;
@@ -66,12 +74,6 @@ int main(int argc, char* argv[]) {
 		Kokkos::View<int**> nextDomain("nextDomain", nRowsLocalWithGhost, nColsWithGhost);
 
 		int dims[2] = {0, 0};
-		int sqrtSize = static_cast<int>(std::sqrt(size));
-		if (sqrtSize * sqrtSize != size) {
-			std::cout << "Number of processes must be a perfect square" << std::endl;
-			MPI_Abort(comm, 1);
-		}
-
 		MPI_Dims_create(size, 2, dims);
 		int periods[2] = {1, 1};
 		MPI_Comm comm2D;
@@ -92,36 +94,77 @@ int main(int argc, char* argv[]) {
 		MPI_Cart_shift(comm2D, 1, 1, &southwest, &northeast);
 
 		// fill in the domain with random values, using Kokkos parallel_for
-		srand(time(0));
-		Kokkos::parallel_for("initializeDomain", nRowsLocal * nColsWithGhost, KOKKOS_LAMBDA(const int idx) {
-    		int iRow = idx / nColsWithGhost;
-    		int iCol = idx % nColsWithGhost;
-    		currDomain(iRow, iCol) = rand() % 2;
-		});
-		Kokkos::fence();
-		
+		if (rank == 0){
+			srand(time(0));
+			for (int iRow = 1; iRow <= nRows; iRow++) {
+				for (int iCol = 1; iCol <= nCols; iCol++) {
+					currDomain(iRow, iCol) = rand() % 2;
+				}
+			}
+		}
+
+		// then broadcast the domain to all the other processes
+		MPI_Bcast(&currDomain(1, 1), nRows * nCols, MPI_INT, 0, comm);
+
 		const int ALIVE = 1;
 		const int DEAD = 0;
 
-		MPI_Sendrecv(&currDomain(1, 1), nCols, MPI_INT, north, 0, &currDomain(nRowsLocal + 1, 1), nCols, MPI_INT, south, 0, comm, MPI_STATUS_IGNORE);
-		MPI_Sendrecv(&currDomain(nRowsLocal, 1), nCols, MPI_INT, south, 0, &currDomain(0, 1), nCols, MPI_INT, north, 0, comm, MPI_STATUS_IGNORE);
-		MPI_Sendrecv(&currDomain(1, 1), 1, MPI_INT, west, 0, &currDomain(1, nCols + 1), 1, MPI_INT, east, 0, comm, MPI_STATUS_IGNORE);
-		MPI_Sendrecv(&currDomain(1, nCols), 1, MPI_INT, east, 0, &currDomain(1, 0), 1, MPI_INT, west, 0, comm, MPI_STATUS_IGNORE);
-		MPI_Sendrecv(&currDomain(1, 1), 1, MPI_INT, northwest, 0, &currDomain(nRowsLocal + 1, nCols + 1), 1, MPI_INT, southeast, 0, comm, MPI_STATUS_IGNORE);
-		MPI_Sendrecv(&currDomain(1, nCols), 1, MPI_INT, northeast, 0, &currDomain(nRowsLocal + 1, 0), 1, MPI_INT, southwest, 0, comm, MPI_STATUS_IGNORE);
-		MPI_Sendrecv(&currDomain(nRowsLocal, 1), 1, MPI_INT, southwest, 0, &currDomain(0, nCols + 1), 1, MPI_INT, northeast, 0, comm, MPI_STATUS_IGNORE);
-		MPI_Sendrecv(&currDomain(nRowsLocal, nCols), 1, MPI_INT, southeast, 0, &currDomain(0, 0), 1, MPI_INT, northwest, 0, comm, MPI_STATUS_IGNORE);
-		
-		// print what each process has
-		for (int iRow = 0; iRow < nRowsLocalWithGhost; iRow++) {
-			for (int iCol = 0; iCol < nColsWithGhost; iCol++) {
-				std::cout << currDomain(iRow, iCol) << " ";
+		// now we can start the simulation
+		for (int iTime = 0; iTime < nTime; iTime++) {
+
+			MPI_Sendrecv(&currDomain(1, 1), nCols, MPI_INT, north, 0, &currDomain(nRowsLocal + 1, 1), nCols, MPI_INT, south, 0, comm2D, MPI_STATUS_IGNORE);
+			MPI_Sendrecv(&currDomain(nRowsLocal, 1), nCols, MPI_INT, south, 0, &currDomain(0, 1), nCols, MPI_INT, north, 0, comm2D, MPI_STATUS_IGNORE);
+			MPI_Sendrecv(&currDomain(1, 1), 1, MPI_INT, west, 0, &currDomain(1, nCols + 1), 1, MPI_INT, east, 0, comm2D, MPI_STATUS_IGNORE);
+			MPI_Sendrecv(&currDomain(1, nCols), 1, MPI_INT, east, 0, &currDomain(1, 0), 1, MPI_INT, west, 0, comm2D, MPI_STATUS_IGNORE);
+			MPI_Sendrecv(&currDomain(1, 1), 1, MPI_INT, northwest, 0, &currDomain(nRowsLocal + 1, nCols + 1), 1, MPI_INT, southeast, 0, comm2D, MPI_STATUS_IGNORE);
+			MPI_Sendrecv(&currDomain(1, nCols), 1, MPI_INT, northeast, 0, &currDomain(nRowsLocal + 1, 0), 1, MPI_INT, southwest, 0, comm2D, MPI_STATUS_IGNORE);
+			MPI_Sendrecv(&currDomain(nRowsLocal, 1), 1, MPI_INT, southwest, 0, &currDomain(0, nCols + 1), 1, MPI_INT, northeast, 0, comm2D, MPI_STATUS_IGNORE);
+			MPI_Sendrecv(&currDomain(nRowsLocal, nCols), 1, MPI_INT, southeast, 0, &currDomain(0, 0), 1, MPI_INT, northwest, 0, comm2D, MPI_STATUS_IGNORE);
+
+			// updoot domainy boi
+			Kokkos::parallel_for("updateDomain", Kokkos::MDRangePolicy<Kokkos::Rank<2>>({1, 1}, {nRowsLocalWithGhost, nColsWithGhost}), KOKKOS_LAMBDA (const int iRow, const int iCol) {
+				int nNeighbors =
+					(iRow > 0 && iCol > 0 ? currDomain(iRow-1, iCol-1) : 0) +
+					(iRow > 0 ? currDomain(iRow-1, iCol) : 0) +
+					(iRow > 0 && iCol < nColsWithGhost-2 ? currDomain(iRow-1, iCol+1) : 0) +
+					(iCol > 0 ? currDomain(iRow, iCol-1) : 0) +
+					(iCol < nColsWithGhost-2 ? currDomain(iRow, iCol+1) : 0) +
+					(iRow < nRowsLocalWithGhost-2 && iCol > 0 ? currDomain(iRow+1, iCol-1) : 0) +
+					(iRow < nRowsLocalWithGhost-2 ? currDomain(iRow+1, iCol) : 0) +
+					(iRow < nRowsLocalWithGhost-2 && iCol < nColsWithGhost-2 ? currDomain(iRow+1, iCol+1) : 0);
+				if (currDomain(iRow, iCol) == ALIVE) {
+					if (nNeighbors < 2 || nNeighbors > 3) {
+						nextDomain(iRow, iCol) = 0;
+					} else {
+						nextDomain(iRow, iCol) = 1;
+					}
+				} else {
+					if (nNeighbors == 3) {
+						nextDomain(iRow, iCol) = 1;
+					} else {
+						nextDomain(iRow, iCol) = 0;
+					}
+				}
+			});
+			Kokkos::fence();
+
+			// copy the next domain to the current domain
+			Kokkos::deep_copy(currDomain, nextDomain);
+			Kokkos::fence();
+
+			// print each iteration
+			if (rank == 0) {
+				std::cout << "Iteration " << iTime << std::endl;
+				std::cout << "--------------------------------" << std::endl;
+				for (int iRow = 1; iRow <= nRows; iRow++) {
+					for (int iCol = 1; iCol <= nCols; iCol++) {
+						std::cout << currDomain(iRow, iCol) << " ";
+					}
+					std::cout << std::endl;
+				}
 			}
-			std::cout << std::endl;
 		}
   	}
-
-	// screw it, I'm coming back to this later
   	Kokkos::finalize();
 	MPI_Finalize();
 }
