@@ -17,6 +17,12 @@ Kokkos issues too.
 #include <cstdlib>
 #include <ctime>
 
+// this really only works on grids that are divisible by the number of processes
+// for example, if you have 4 processes, the number of rows and columns must be divisible by 2
+// so 4x4, 8x8, 16x16, etc. will work, but 5x5, 6x6, 7x7, etc. will not work (properly)
+// this is because I ran into race conditions when I tried to use MPI_GatherV
+// hey, at least it works for some cases ¯\_(ツ)_/¯
+
 int main(int argc, char* argv[]) {
 	MPI_Init(&argc, &argv);
 	Kokkos::initialize(argc, argv);
@@ -48,6 +54,11 @@ int main(int argc, char* argv[]) {
 			if (sqrtSize * sqrtSize != size) {
 				std::cout << "Number of processes must be a perfect square" << std::endl;
 				MPI_Abort(comm, 1);
+			}
+			// check if the number of rows and columns is divisible by the number of processes (for simplicity because I can't use GatherV because skill issue)
+			if (nRows % sqrtSize != 0 || nCols % sqrtSize != 0) {
+				std::cout << "Number of rows and columns must be divisible by the square root of the number of processes" << std::endl;
+				MPI_Abort(comm, 1);
 			}	
 		}
 
@@ -72,12 +83,25 @@ int main(int argc, char* argv[]) {
 		Kokkos::View<int**> currDomain("currDomain", nRowsLocal + 2, nCols + 2);
 		Kokkos::View<int**> nextDomain("nextDomain", nRowsLocal + 2, nCols + 2);
 
+		std::default_random_engine generator(time(0) + rank);
+		std::uniform_int_distribution<int> distribution(0, 1);
+
 		// fill the domain with random values
-		srand(time(0) + rank);
 		for (int iRow = 1; iRow <= nRowsLocal; iRow++) {
 			for (int iCol = 1; iCol <= nCols; iCol++) {
-				currDomain(iRow, iCol) = rand() % 2;
+				currDomain(iRow, iCol) = distribution(generator);
 			}
+		}
+
+		// print the initial domain for debugging
+		std::cout << "Initial Domain" << std::endl;
+		std::cout << "Rank: " << rank << "\n";
+		std::cout << "--------------------------------" << std::endl;
+		for (int iRow = 1; iRow <= nRowsLocal; iRow++) {
+			for (int iCol = 1; iCol <= nCols; iCol++) {
+				std::cout << currDomain(iRow, iCol) << " ";
+			}
+			std::cout << std::endl;
 		}
 
 		int* sendcounts = new int[size];
@@ -119,8 +143,6 @@ int main(int argc, char* argv[]) {
 
 		const int ALIVE = 1;
 		const int DEAD = 0;
-
-		// Brock Purdy is the greatest Mr. Irrelevant of all time
 
 		// now we can start the simulation
 		for (int iTime = 0; iTime < nTime; iTime++) {
@@ -174,22 +196,30 @@ int main(int argc, char* argv[]) {
 			// copy the next domain to the current domain
 			Kokkos::deep_copy(currDomain, nextDomain);
 			Kokkos::fence();
+			
+			int* gatherBuffer = nullptr;
+			if (rank == 0){
+				gatherBuffer = new int[size * (nRowsLocal * nCols)];
+			}
+
+			MPI_Gather(&currDomain(1, 1), nRowsLocal * nCols, MPI_INT, gatherBuffer, nRowsLocal * nCols, MPI_INT, 0, comm);
 
 			// print each iteration
 			if (rank == 0) {
 				std::cout << "Iteration " << iTime << std::endl;
 				std::cout << "--------------------------------" << std::endl;
-				for (int iRow = 1; iRow <= nRows; iRow++) {
-					for (int iCol = 1; iCol <= nCols; iCol++) {
-						std::cout << currDomain(iRow, iCol) << " ";
+				for (int iRank = 0; iRank < size; iRank++) {
+					for (int iRow = 1; iRow <= nRowsLocal; iRow++) {
+						for (int iCol = 1; iCol <= nCols; iCol++) {
+							std::cout << gatherBuffer[iRank * (nRowsLocal * nCols) + (iRow - 1) * nCols + iCol - 1] << " ";
+						}
+						std::cout << std::endl;
 					}
-					std::cout << std::endl;
 				}
+				delete[] gatherBuffer;
 			}
 		}
   	}
   	Kokkos::finalize();
 	MPI_Finalize();
 }
-
-// I hate M
