@@ -18,11 +18,11 @@
 
 | Problem 3  |  7    |some results are off, check memory 
 
-			allocation				   |
+			allocation			   |
 
 +------------+-------+-------------------------------------+
 
-| Problem 4  |  -    |	   				   |
+| Problem 4  |  -    |	   grad				   |
 
 +------------+-------+-------------------------------------+
 
